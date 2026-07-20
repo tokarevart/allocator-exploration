@@ -1,0 +1,7 @@
+-std=gnu23
+-Wextra
+-Werror
+-Wno-error=unused-function
+-Wall
+-Wno-gnu-folding-constant
+-Iutils
