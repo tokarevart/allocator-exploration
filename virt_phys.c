@@ -91,7 +91,9 @@ main(void) {
     get_mem_stats(&after);
     printf("After:\n");
     print_mem_stats(&after, &before, n1);
-    printf("  elapsed:  %.1f ms\n", elapsed_ms(&t_start, &t_end));
+    double e1 = elapsed_ms(&t_start, &t_end);
+    double pa1 = e1 / n1 * 1000;
+    printf("  elapsed:  %.2f ms  (%.3f µs/alloc)\n", e1, pa1);
 
     for (size_t i = 0; i < n1; i++) {
         free(ptrs1[i]);
@@ -119,7 +121,9 @@ main(void) {
     get_mem_stats(&after);
     printf("After:\n");
     print_mem_stats(&after, &before, n2);
-    printf("  elapsed:  %.1f ms\n", elapsed_ms(&t_start, &t_end));
+    double e2 = elapsed_ms(&t_start, &t_end);
+    double pa2 = e2 / n2 * 1000;
+    printf("  elapsed:  %.2f ms  (%.3f µs/alloc)\n", e2, pa2);
 
     for (size_t i = 0; i < n2; i++) {
         free(ptrs2[i]);
@@ -147,7 +151,9 @@ main(void) {
     get_mem_stats(&after);
     printf("After:\n");
     print_mem_stats(&after, &before, n3);
-    printf("  elapsed:  %.1f ms\n", elapsed_ms(&t_start, &t_end));
+    double e3 = elapsed_ms(&t_start, &t_end);
+    double pa3 = e3 / n3 * 1000;
+    printf("  elapsed:  %.2f ms  (%.3f µs/alloc)\n", e3, pa3);
 
     for (size_t i = 0; i < n3; i++) {
         free(ptrs3[i]);
@@ -175,7 +181,9 @@ main(void) {
     get_mem_stats(&after);
     printf("After:\n");
     print_mem_stats(&after, &before, n4);
-    printf("  elapsed:  %.1f ms\n", elapsed_ms(&t_start, &t_end));
+    double e4 = elapsed_ms(&t_start, &t_end);
+    double pa4 = e4 / n4 * 1000;
+    printf("  elapsed:  %.2f ms  (%.3f µs/alloc)\n", e4, pa4);
 
     for (size_t i = 0; i < n4; i++) {
         free(ptrs4[i]);
@@ -206,7 +214,7 @@ main(void) {
         free(ptr5);
         malloc_trim(0);
     }
-    printf("  elapsed:  %.1f ms\n", elapsed_ms(&t_start, &t_end));
+    printf("  elapsed:  %.2f ms\n", elapsed_ms(&t_start, &t_end));
 
     return 0;
 }
