@@ -1,4 +1,4 @@
-GCC_FLAGS = -std=gnu23 -O3 -funroll-loops -fvariable-expansion-in-unroller -march=native -Wextra -Werror -Wall -Wno-gnu-folding-constant -g
+GCC_FLAGS = -std=gnu23 -O3 -march=native -Wextra -Werror -Wall -Wno-gnu-folding-constant -g
 
 all: build
 
