@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 // #include <unistd.h>
 
 // void
@@ -63,25 +64,34 @@ print_mem_stats(const mem_stats_t *s, const mem_stats_t *prev, size_t count) {
     }
 }
 
+static double
+elapsed_ms(struct timespec *start, struct timespec *end) {
+    return (end->tv_sec - start->tv_sec) * 1000.0 + (end->tv_nsec - start->tv_nsec) / 1e6;
+}
+
 int
 main(void) {
     mem_stats_t before, after;
+    struct timespec t_start, t_end;
 
-    /* Phase 1: 1M x 1-byte allocations */
-    printf("--- Phase 1: 1,000,000 x malloc(1) = 1MB ---\n");
+    /* Phase 1: 100K x 1-byte allocations */
+    printf("--- Phase 1: 100,000 x malloc(1) = 100KB ---\n");
     get_mem_stats(&before);
     printf("Before:\n");
     print_mem_stats(&before, NULL, 0);
 
-    size_t n1 = 1000000;
+    size_t n1 = 100000;
     void **ptrs1 = malloc(n1 * sizeof(void *));
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
     for (size_t i = 0; i < n1; i++) {
         ptrs1[i] = malloc(1);
     }
+    clock_gettime(CLOCK_MONOTONIC, &t_end);
 
     get_mem_stats(&after);
     printf("After:\n");
     print_mem_stats(&after, &before, n1);
+    printf("  elapsed:  %.1f ms\n", elapsed_ms(&t_start, &t_end));
 
     for (size_t i = 0; i < n1; i++) {
         free(ptrs1[i]);
@@ -100,13 +110,16 @@ main(void) {
     size_t total2 = (size_t)2 * 1024 * 1024 * 1024;
     size_t n2 = total2 / chunk2;
     void **ptrs2 = malloc(n2 * sizeof(void *));
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
     for (size_t i = 0; i < n2; i++) {
         ptrs2[i] = malloc(chunk2);
     }
+    clock_gettime(CLOCK_MONOTONIC, &t_end);
 
     get_mem_stats(&after);
     printf("After:\n");
     print_mem_stats(&after, &before, n2);
+    printf("  elapsed:  %.1f ms\n", elapsed_ms(&t_start, &t_end));
 
     for (size_t i = 0; i < n2; i++) {
         free(ptrs2[i]);
@@ -125,13 +138,16 @@ main(void) {
     size_t total3 = 4UL * 1024 * 1024 * 1024;
     size_t n3 = total3 / chunk3;
     void **ptrs3 = malloc(n3 * sizeof(void *));
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
     for (size_t i = 0; i < n3; i++) {
         ptrs3[i] = malloc(chunk3);
     }
+    clock_gettime(CLOCK_MONOTONIC, &t_end);
 
     get_mem_stats(&after);
     printf("After:\n");
     print_mem_stats(&after, &before, n3);
+    printf("  elapsed:  %.1f ms\n", elapsed_ms(&t_start, &t_end));
 
     for (size_t i = 0; i < n3; i++) {
         free(ptrs3[i]);
@@ -150,13 +166,16 @@ main(void) {
     size_t total4 = 100UL * 1024 * 1024 * 1024;
     size_t n4 = total4 / chunk4;
     void **ptrs4 = malloc(n4 * sizeof(void *));
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
     for (size_t i = 0; i < n4; i++) {
         ptrs4[i] = malloc(chunk4);
     }
+    clock_gettime(CLOCK_MONOTONIC, &t_end);
 
     get_mem_stats(&after);
     printf("After:\n");
     print_mem_stats(&after, &before, n4);
+    printf("  elapsed:  %.1f ms\n", elapsed_ms(&t_start, &t_end));
 
     for (size_t i = 0; i < n4; i++) {
         free(ptrs4[i]);
@@ -172,7 +191,9 @@ main(void) {
     print_mem_stats(&before, NULL, 0);
 
     size_t big5 = 100UL * 1024 * 1024 * 1024;
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
     void *ptr5 = malloc(big5);
+    clock_gettime(CLOCK_MONOTONIC, &t_end);
     if (!ptr5) {
         printf("  malloc(100GB) FAILED (returned NULL)\n");
     } else {
@@ -185,6 +206,7 @@ main(void) {
         free(ptr5);
         malloc_trim(0);
     }
+    printf("  elapsed:  %.1f ms\n", elapsed_ms(&t_start, &t_end));
 
     return 0;
 }
