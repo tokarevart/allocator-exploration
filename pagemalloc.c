@@ -10,14 +10,18 @@ void *
 malloc(size_t size) {
     void *p =
         mmap(NULL, size + HEADER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (p == MAP_FAILED) return NULL;
+    if (p == MAP_FAILED) {
+        return NULL;
+    }
     *(size_t *)p = size;
     return (char *)p + HEADER_SIZE;
 }
 
 void
 free(void *ptr) {
-    if (!ptr) return;
+    if (!ptr) {
+        return;
+    }
     void *base = (char *)ptr - HEADER_SIZE;
     size_t size = *(size_t *)base;
     munmap(base, size + HEADER_SIZE);
@@ -25,13 +29,17 @@ free(void *ptr) {
 
 void *
 calloc(size_t nmemb, size_t size) {
-    if (nmemb && size > SIZE_MAX / nmemb) return NULL;
+    if (nmemb && size > SIZE_MAX / nmemb) {
+        return NULL;
+    }
     return malloc(nmemb * size);
 }
 
 void *
 realloc(void *ptr, size_t new_size) {
-    if (!ptr) return malloc(new_size);
+    if (!ptr) {
+        return malloc(new_size);
+    }
     if (new_size == 0) {
         free(ptr);
         return NULL;
@@ -40,7 +48,9 @@ realloc(void *ptr, size_t new_size) {
     void *new_ptr = mremap(
         (char *)ptr - HEADER_SIZE, old_size + HEADER_SIZE, new_size + HEADER_SIZE, MREMAP_MAYMOVE
     );
-    if (new_ptr == MAP_FAILED) return NULL;
+    if (new_ptr == MAP_FAILED) {
+        return NULL;
+    }
     *(size_t *)new_ptr = new_size;
     return (char *)new_ptr + HEADER_SIZE;
 }

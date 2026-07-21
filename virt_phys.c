@@ -31,10 +31,11 @@ get_mem_stats(mem_stats_t *s) {
     char line[256];
     while (fgets(line, sizeof(line), f)) {
         size_t val = 0;
-        if (sscanf(line, "VmSize: %zu kB", &val) == 1)
+        if (sscanf(line, "VmSize: %zu kB", &val) == 1) {
             s->vmsize = val;
-        else if (sscanf(line, "VmRSS: %zu kB", &val) == 1)
+        } else if (sscanf(line, "VmRSS: %zu kB", &val) == 1) {
             s->vmrss = val;
+        }
     }
     fclose(f);
 }
@@ -47,14 +48,16 @@ print_mem_stats(const mem_stats_t *s, const mem_stats_t *prev, size_t count) {
     if (prev && count) {
         double pv = (double)dv / count * 1024;
         double pr = (double)dr / count * 1024;
-        if (pv < 1024.0)
+        if (pv < 1024.0) {
             printf("  VmSize: %8zu kB  (%+zd, %+.0f B/alloc)\n", s->vmsize, dv, pv);
-        else
+        } else {
             printf("  VmSize: %8zu kB  (%+zd, %+.1f kB/alloc)\n", s->vmsize, dv, pv / 1024);
-        if (pr < 1024.0)
+        }
+        if (pr < 1024.0) {
             printf("  VmRSS:  %8zu kB  (%+zd, %+.0f B/alloc)\n", s->vmrss, dr, pr);
-        else
+        } else {
             printf("  VmRSS:  %8zu kB  (%+zd, %+.1f kB/alloc)\n", s->vmrss, dr, pr / 1024);
+        }
     } else if (prev) {
         printf("  VmSize: %8zu kB  (%+zd)\n", s->vmsize, dv);
         printf("  VmRSS:  %8zu kB  (%+zd)\n", s->vmrss, dr);

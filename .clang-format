@@ -20,3 +20,6 @@ BreakBeforeBraces: Attach
 # Other Rust-like tweaks
 PointerAlignment: Right
 SpaceAfterCStyleCast: false
+
+# Force braces on control flow
+InsertBraces: true
