@@ -3,15 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-// #include <unistd.h>
-
-// void
-// free(void *ptr) {
-//     (void)ptr;
-//     char *msg = "free: aborting\n";
-//     write(STDERR_FILENO, msg, strlen(msg));
-//     abort();
-// }
 
 typedef struct {
     size_t vmsize;
