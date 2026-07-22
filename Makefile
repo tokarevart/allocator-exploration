@@ -19,7 +19,7 @@ noalloc.so: noalloc.c
 pagemalloc.so: pagemalloc.c
 	gcc -shared -fPIC -o build/pagemalloc.so pagemalloc.c
 
-run: run-virt_phys run-noalloc run-static run-pagemalloc run-align
+run: run-virt_phys run-noalloc run-static run-pagemalloc run-mimalloc run-align
 
 run-virt_phys: build
 	@echo
@@ -40,6 +40,11 @@ run-pagemalloc: build
 	@echo
 	@echo "--- pagemalloc (mmap-only allocator) ---"
 	-@LD_PRELOAD=./build/pagemalloc.so ./build/virt_phys
+
+run-mimalloc: build
+	@echo
+	@echo "--- mimalloc (LD_PRELOAD) ---"
+	-@LD_PRELOAD=/usr/lib64/libmimalloc.so.2 ./build/virt_phys
 
 run-align: build
 	@echo
