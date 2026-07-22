@@ -4,12 +4,13 @@
 #include <string.h>
 #include <sys/mman.h>
 
-#define HEADER_SIZE 16
+constexpr size_t HEADER_SIZE = 16;
 
 void *
 malloc(size_t size) {
-    void *p =
-        mmap(NULL, size + HEADER_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    int prot = PROT_READ | PROT_WRITE;
+    int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+    void *p = mmap(NULL, size + HEADER_SIZE, prot, flags, -1, 0);
     if (p == MAP_FAILED) {
         return NULL;
     }

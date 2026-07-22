@@ -14,10 +14,10 @@ align: align.c
 	gcc $(GCC_FLAGS) align.c -o build/align
 
 noalloc.so: noalloc.c
-	gcc -shared -fPIC -o build/noalloc.so noalloc.c
+	gcc $(GCC_FLAGS) -shared -fPIC -o build/noalloc.so noalloc.c
 
 pagemalloc.so: pagemalloc.c
-	gcc -shared -fPIC -o build/pagemalloc.so pagemalloc.c
+	gcc $(GCC_FLAGS) -shared -fPIC -o build/pagemalloc.so pagemalloc.c
 
 run: run-virt_phys run-noalloc run-static run-pagemalloc run-mimalloc run-align
 
