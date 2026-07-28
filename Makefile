@@ -1,4 +1,5 @@
 GCC_FLAGS = -std=gnu23 -O3 -march=native -Wextra -Werror -Wall -Wno-gnu-folding-constant -g
+THREADS_MAX ?= 8
 
 all: build
 
@@ -24,27 +25,27 @@ run: run-virt_phys run-noalloc run-static run-pagemalloc run-mimalloc run-align
 run-virt_phys: build
 	@echo
 	@echo "--- virtual vs physical memory ---"
-	@./build/virt_phys
+	@THREADS_MAX=$(THREADS_MAX) ./build/virt_phys
 
 run-noalloc: build
 	@echo
 	@echo "--- aborting allocator (LD_PRELOAD) ---"
-	-@LD_PRELOAD=./build/noalloc.so ./build/virt_phys
+	-@THREADS_MAX=$(THREADS_MAX) LD_PRELOAD=./build/noalloc.so ./build/virt_phys
 
 run-static: build
 	@echo
 	@echo "--- aborting allocator (static) ---"
-	-@./build/virt_phys_static
+	-@THREADS_MAX=$(THREADS_MAX) ./build/virt_phys_static
 
 run-pagemalloc: build
 	@echo
 	@echo "--- pagemalloc (mmap-only allocator) ---"
-	-@LD_PRELOAD=./build/pagemalloc.so ./build/virt_phys
+	-@THREADS_MAX=$(THREADS_MAX) LD_PRELOAD=./build/pagemalloc.so ./build/virt_phys
 
 run-mimalloc: build
 	@echo
 	@echo "--- mimalloc (LD_PRELOAD) ---"
-	-@LD_PRELOAD=/usr/lib64/libmimalloc.so.2 ./build/virt_phys
+	-@THREADS_MAX=$(THREADS_MAX) LD_PRELOAD=/usr/lib64/libmimalloc.so.2 ./build/virt_phys
 
 run-align: build
 	@echo

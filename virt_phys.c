@@ -1,7 +1,9 @@
+#include <assert.h>
 #include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <threads.h>
 #include <time.h>
 
 typedef struct {
@@ -63,127 +65,371 @@ elapsed_ms(struct timespec *start, struct timespec *end) {
     return (end->tv_sec - start->tv_sec) * 1000.0 + (end->tv_nsec - start->tv_nsec) / 1e6;
 }
 
+typedef struct {
+    double elapsed_ms;
+    double per_alloc_ns;
+    size_t alloc_count;
+} bench_stats_t;
+
+typedef struct {
+    mtx_t mtx;
+    cnd_t cnd;
+    size_t waiting;
+    size_t total;
+} barrier_t;
+
+static void
+barrier_init(barrier_t *b, size_t total) {
+    mtx_init(&b->mtx, mtx_plain);
+    cnd_init(&b->cnd);
+    b->waiting = 0;
+    b->total = total;
+}
+
+static void
+barrier_wait(barrier_t *b) {
+    mtx_lock(&b->mtx);
+    b->waiting++;
+    if (b->waiting == b->total) {
+        b->waiting = 0;
+        cnd_broadcast(&b->cnd);
+    } else {
+        cnd_wait(&b->cnd, &b->mtx);
+    }
+    mtx_unlock(&b->mtx);
+}
+
+static void
+barrier_destroy(barrier_t *b) {
+    mtx_destroy(&b->mtx);
+    cnd_destroy(&b->cnd);
+}
+
+typedef struct {
+    mtx_t mtx;
+    barrier_t barrier;
+    size_t next_idx;
+    size_t chunk_size;
+    size_t alloc_count;
+    bench_stats_t *results;
+    void **ptrs;
+} bench_ctx_t;
+
+static int
+bench_thread(void *arg) {
+    bench_ctx_t *ctx = arg;
+
+    mtx_lock(&ctx->mtx);
+    size_t idx = ctx->next_idx++;
+    mtx_unlock(&ctx->mtx);
+
+    void **my_ptrs = ctx->ptrs + (idx * ctx->alloc_count);
+
+    struct timespec t_start, t_end;
+    barrier_wait(&ctx->barrier);
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
+    for (size_t i = 0; i < ctx->alloc_count; i++) {
+        my_ptrs[i] = malloc(ctx->chunk_size);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &t_end);
+
+    bench_stats_t *s = &ctx->results[idx];
+    s->elapsed_ms = elapsed_ms(&t_start, &t_end);
+    s->per_alloc_ns = s->elapsed_ms / ctx->alloc_count * 1e6;
+    s->alloc_count = ctx->alloc_count;
+
+    return 0;
+}
+
+static void
+print_stats(const bench_stats_t *stats, size_t count, int show_each) {
+    if (show_each) {
+        for (size_t i = 0; i < count; i++) {
+            printf(
+                "  [thread %zu] elapsed: %.2f ms  (%.3f us/alloc)\n",
+                i,
+                stats[i].elapsed_ms,
+                stats[i].per_alloc_ns / 1000.0
+            );
+        }
+    }
+
+    double avg_elapsed = 0;
+    double avg_per_alloc = 0;
+    for (size_t i = 0; i < count; i++) {
+        avg_elapsed += stats[i].elapsed_ms;
+        avg_per_alloc += stats[i].per_alloc_ns;
+    }
+    avg_elapsed /= count;
+    avg_per_alloc /= count;
+
+    if (show_each) {
+        printf(
+            "  [avg]      elapsed: %.2f ms  (%.3f us/alloc)\n", avg_elapsed, avg_per_alloc / 1000.0
+        );
+    } else {
+        printf("%6zu     %6.2f ms    %7.3f\n", count, avg_elapsed, avg_per_alloc / 1000.0);
+    }
+}
+
 int
 main(void) {
+    const char *env = getenv("THREADS_MAX");
+    size_t threads_max = env ? (size_t)atol(env) : 8;
+    assert(
+        threads_max > 0 && (threads_max & (threads_max - 1)) == 0 &&
+        "THREADS_MAX must be power of 2"
+    );
+
+    int show_thread_stats = getenv("THREAD_STATS") != NULL;
+
     mem_stats_t before, after;
-    struct timespec t_start, t_end;
+    thrd_t *tids = malloc(threads_max * sizeof(thrd_t));
+
+    bench_ctx_t ctx = {
+        .chunk_size = 0,
+        .alloc_count = 0,
+        .results = malloc(threads_max * sizeof(bench_stats_t)),
+    };
 
     /* Phase 1: 100K x 1-byte allocations */
     printf("--- Phase 1: 100,000 x malloc(1) = 100KB ---\n");
-    get_mem_stats(&before);
-    printf("Before:\n");
-    print_mem_stats(&before, NULL, 0);
 
-    size_t n1 = 100000;
-    void **ptrs1 = malloc(n1 * sizeof(void *));
-    clock_gettime(CLOCK_MONOTONIC, &t_start);
-    for (size_t i = 0; i < n1; i++) {
-        ptrs1[i] = malloc(1);
+    ctx.chunk_size = 1;
+    ctx.alloc_count = 100000;
+
+    if (!show_thread_stats) {
+        printf("\nthreads  elapsed/thr  us/alloc\n");
     }
-    clock_gettime(CLOCK_MONOTONIC, &t_end);
 
-    get_mem_stats(&after);
-    printf("After:\n");
-    print_mem_stats(&after, &before, n1);
-    double e1 = elapsed_ms(&t_start, &t_end);
-    double pa1 = e1 / n1 * 1000;
-    printf("  elapsed:  %.2f ms  (%.3f µs/alloc)\n", e1, pa1);
+    ssize_t sum_vmsize_delta = 0;
+    ssize_t sum_vmrss_delta = 0;
+    size_t sum_threads = 0;
 
-    for (size_t i = 0; i < n1; i++) {
-        free(ptrs1[i]);
+    for (size_t threads = 1; threads <= threads_max; threads *= 2) {
+        if (show_thread_stats) {
+            printf("\n  --- %zu thread%s ---\n", threads, threads > 1 ? "s" : "");
+        }
+
+        malloc_trim(0);
+
+        ctx.next_idx = 0;
+        ctx.ptrs = malloc(threads * ctx.alloc_count * sizeof(void *));
+        mtx_init(&ctx.mtx, mtx_plain);
+        barrier_init(&ctx.barrier, threads);
+
+        get_mem_stats(&before);
+
+        for (size_t i = 0; i < threads; i++) {
+            thrd_create(&tids[i], bench_thread, &ctx);
+        }
+        for (size_t i = 0; i < threads; i++) {
+            thrd_join(tids[i], NULL);
+        }
+
+        get_mem_stats(&after);
+
+        for (size_t i = 0; i < threads * ctx.alloc_count; i++) {
+            free(ctx.ptrs[i]);
+        }
+        free(ctx.ptrs);
+
+        sum_vmsize_delta += (ssize_t)after.vmsize - (ssize_t)before.vmsize;
+        sum_vmrss_delta += (ssize_t)after.vmrss - (ssize_t)before.vmrss;
+        sum_threads += threads;
+
+        print_stats(ctx.results, threads, show_thread_stats && threads > 1);
+        barrier_destroy(&ctx.barrier);
+        mtx_destroy(&ctx.mtx);
     }
-    free(ptrs1);
-    malloc_trim(0);
+
+    printf(
+        "  vmsize: %.0f B/alloc\n",
+        (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count)
+    );
+    printf(
+        "  vmrss:  %.0f B/alloc\n", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count)
+    );
     printf("\n");
 
-    /* Phase 2: 2GB of 128KB allocations */
+    /* Phase 2: 16,384 x malloc(128KB) = 2GB */
     printf("--- Phase 2: 16,384 x malloc(128KB) = 2GB ---\n");
-    get_mem_stats(&before);
-    printf("Before:\n");
-    print_mem_stats(&before, NULL, 0);
 
-    size_t chunk2 = 128 * 1024;
-    size_t total2 = (size_t)2 * 1024 * 1024 * 1024;
-    size_t n2 = total2 / chunk2;
-    void **ptrs2 = malloc(n2 * sizeof(void *));
-    clock_gettime(CLOCK_MONOTONIC, &t_start);
-    for (size_t i = 0; i < n2; i++) {
-        ptrs2[i] = malloc(chunk2);
+    ctx.chunk_size = 128 * 1024;
+    ctx.alloc_count = 16384;
+
+    if (!show_thread_stats) {
+        printf("\nthreads  elapsed/thr  us/alloc\n");
     }
-    clock_gettime(CLOCK_MONOTONIC, &t_end);
 
-    get_mem_stats(&after);
-    printf("After:\n");
-    print_mem_stats(&after, &before, n2);
-    double e2 = elapsed_ms(&t_start, &t_end);
-    double pa2 = e2 / n2 * 1000;
-    printf("  elapsed:  %.2f ms  (%.3f µs/alloc)\n", e2, pa2);
+    sum_vmsize_delta = 0;
+    sum_vmrss_delta = 0;
+    sum_threads = 0;
 
-    for (size_t i = 0; i < n2; i++) {
-        free(ptrs2[i]);
+    for (size_t threads = 1; threads <= threads_max; threads *= 2) {
+        if (show_thread_stats) {
+            printf("\n  --- %zu thread%s ---\n", threads, threads > 1 ? "s" : "");
+        }
+
+        malloc_trim(0);
+
+        ctx.next_idx = 0;
+        ctx.ptrs = malloc(threads * ctx.alloc_count * sizeof(void *));
+        mtx_init(&ctx.mtx, mtx_plain);
+        barrier_init(&ctx.barrier, threads);
+
+        get_mem_stats(&before);
+
+        for (size_t i = 0; i < threads; i++) {
+            thrd_create(&tids[i], bench_thread, &ctx);
+        }
+        for (size_t i = 0; i < threads; i++) {
+            thrd_join(tids[i], NULL);
+        }
+
+        get_mem_stats(&after);
+
+        for (size_t i = 0; i < threads * ctx.alloc_count; i++) {
+            free(ctx.ptrs[i]);
+        }
+        free(ctx.ptrs);
+
+        sum_vmsize_delta += (ssize_t)after.vmsize - (ssize_t)before.vmsize;
+        sum_vmrss_delta += (ssize_t)after.vmrss - (ssize_t)before.vmrss;
+        sum_threads += threads;
+
+        print_stats(ctx.results, threads, show_thread_stats && threads > 1);
+        barrier_destroy(&ctx.barrier);
+        mtx_destroy(&ctx.mtx);
     }
-    free(ptrs2);
-    malloc_trim(0);
+
+    printf(
+        "  vmsize: %.0f B/alloc\n",
+        (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count)
+    );
+    printf(
+        "  vmrss:  %.0f B/alloc\n", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count)
+    );
     printf("\n");
 
-    /* Phase 3: 4GB of 128MB allocations */
+    /* Phase 3: 32 x malloc(128MB) = 4GB */
     printf("--- Phase 3: 32 x malloc(128MB) = 4GB ---\n");
-    get_mem_stats(&before);
-    printf("Before:\n");
-    print_mem_stats(&before, NULL, 0);
 
-    size_t chunk3 = 128UL * 1024 * 1024;
-    size_t total3 = 4UL * 1024 * 1024 * 1024;
-    size_t n3 = total3 / chunk3;
-    void **ptrs3 = malloc(n3 * sizeof(void *));
-    clock_gettime(CLOCK_MONOTONIC, &t_start);
-    for (size_t i = 0; i < n3; i++) {
-        ptrs3[i] = malloc(chunk3);
+    ctx.chunk_size = 128UL * 1024 * 1024;
+    ctx.alloc_count = 32;
+
+    if (!show_thread_stats) {
+        printf("\nthreads  elapsed/thr  us/alloc\n");
     }
-    clock_gettime(CLOCK_MONOTONIC, &t_end);
 
-    get_mem_stats(&after);
-    printf("After:\n");
-    print_mem_stats(&after, &before, n3);
-    double e3 = elapsed_ms(&t_start, &t_end);
-    double pa3 = e3 / n3 * 1000;
-    printf("  elapsed:  %.2f ms  (%.3f µs/alloc)\n", e3, pa3);
+    sum_vmsize_delta = 0;
+    sum_vmrss_delta = 0;
+    sum_threads = 0;
 
-    for (size_t i = 0; i < n3; i++) {
-        free(ptrs3[i]);
+    for (size_t threads = 1; threads <= threads_max; threads *= 2) {
+        if (show_thread_stats) {
+            printf("\n  --- %zu thread%s ---\n", threads, threads > 1 ? "s" : "");
+        }
+
+        malloc_trim(0);
+
+        ctx.next_idx = 0;
+        ctx.ptrs = malloc(threads * ctx.alloc_count * sizeof(void *));
+        mtx_init(&ctx.mtx, mtx_plain);
+        barrier_init(&ctx.barrier, threads);
+
+        get_mem_stats(&before);
+
+        for (size_t i = 0; i < threads; i++) {
+            thrd_create(&tids[i], bench_thread, &ctx);
+        }
+        for (size_t i = 0; i < threads; i++) {
+            thrd_join(tids[i], NULL);
+        }
+
+        get_mem_stats(&after);
+
+        for (size_t i = 0; i < threads * ctx.alloc_count; i++) {
+            free(ctx.ptrs[i]);
+        }
+        free(ctx.ptrs);
+
+        sum_vmsize_delta += (ssize_t)after.vmsize - (ssize_t)before.vmsize;
+        sum_vmrss_delta += (ssize_t)after.vmrss - (ssize_t)before.vmrss;
+        sum_threads += threads;
+
+        print_stats(ctx.results, threads, show_thread_stats && threads > 1);
+        barrier_destroy(&ctx.barrier);
+        mtx_destroy(&ctx.mtx);
     }
-    free(ptrs3);
-    malloc_trim(0);
+
+    printf(
+        "  vmsize: %.0f B/alloc\n",
+        (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count)
+    );
+    printf(
+        "  vmrss:  %.0f B/alloc\n", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count)
+    );
     printf("\n");
 
-    /* Phase 4: 100GB of 1GB allocations */
+    /* Phase 4: 100 x malloc(1GB) = 100GB */
     printf("--- Phase 4: 100 x malloc(1GB) = 100GB ---\n");
-    get_mem_stats(&before);
-    printf("Before:\n");
-    print_mem_stats(&before, NULL, 0);
 
-    size_t chunk4 = 1UL * 1024 * 1024 * 1024;
-    size_t total4 = 100UL * 1024 * 1024 * 1024;
-    size_t n4 = total4 / chunk4;
-    void **ptrs4 = malloc(n4 * sizeof(void *));
-    clock_gettime(CLOCK_MONOTONIC, &t_start);
-    for (size_t i = 0; i < n4; i++) {
-        ptrs4[i] = malloc(chunk4);
+    ctx.chunk_size = 1UL * 1024 * 1024 * 1024;
+    ctx.alloc_count = 100;
+
+    if (!show_thread_stats) {
+        printf("\nthreads  elapsed/thr  us/alloc\n");
     }
-    clock_gettime(CLOCK_MONOTONIC, &t_end);
 
-    get_mem_stats(&after);
-    printf("After:\n");
-    print_mem_stats(&after, &before, n4);
-    double e4 = elapsed_ms(&t_start, &t_end);
-    double pa4 = e4 / n4 * 1000;
-    printf("  elapsed:  %.2f ms  (%.3f µs/alloc)\n", e4, pa4);
+    sum_vmsize_delta = 0;
+    sum_vmrss_delta = 0;
+    sum_threads = 0;
 
-    for (size_t i = 0; i < n4; i++) {
-        free(ptrs4[i]);
+    for (size_t threads = 1; threads <= threads_max; threads *= 2) {
+        if (show_thread_stats) {
+            printf("\n  --- %zu thread%s ---\n", threads, threads > 1 ? "s" : "");
+        }
+
+        malloc_trim(0);
+
+        ctx.next_idx = 0;
+        ctx.ptrs = malloc(threads * ctx.alloc_count * sizeof(void *));
+        mtx_init(&ctx.mtx, mtx_plain);
+        barrier_init(&ctx.barrier, threads);
+
+        get_mem_stats(&before);
+
+        for (size_t i = 0; i < threads; i++) {
+            thrd_create(&tids[i], bench_thread, &ctx);
+        }
+        for (size_t i = 0; i < threads; i++) {
+            thrd_join(tids[i], NULL);
+        }
+
+        get_mem_stats(&after);
+
+        for (size_t i = 0; i < threads * ctx.alloc_count; i++) {
+            free(ctx.ptrs[i]);
+        }
+        free(ctx.ptrs);
+
+        sum_vmsize_delta += (ssize_t)after.vmsize - (ssize_t)before.vmsize;
+        sum_vmrss_delta += (ssize_t)after.vmrss - (ssize_t)before.vmrss;
+        sum_threads += threads;
+
+        print_stats(ctx.results, threads, show_thread_stats && threads > 1);
+        barrier_destroy(&ctx.barrier);
+        mtx_destroy(&ctx.mtx);
     }
-    free(ptrs4);
-    malloc_trim(0);
+
+    printf(
+        "  vmsize: %.0f B/alloc\n",
+        (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count)
+    );
+    printf(
+        "  vmrss:  %.0f B/alloc\n", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count)
+    );
     printf("\n");
 
     /* Phase 5: single 100GB allocation */
@@ -193,6 +439,7 @@ main(void) {
     print_mem_stats(&before, NULL, 0);
 
     size_t big5 = 100UL * 1024 * 1024 * 1024;
+    struct timespec t_start, t_end;
     clock_gettime(CLOCK_MONOTONIC, &t_start);
     void *ptr5 = malloc(big5);
     clock_gettime(CLOCK_MONOTONIC, &t_end);
@@ -209,6 +456,9 @@ main(void) {
         malloc_trim(0);
     }
     printf("  elapsed:  %.2f ms\n", elapsed_ms(&t_start, &t_end));
+
+    free(tids);
+    free(ctx.results);
 
     return 0;
 }
