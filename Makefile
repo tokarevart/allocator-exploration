@@ -24,7 +24,7 @@ run: run-virt_phys run-noalloc run-static run-pagemalloc run-mimalloc run-align
 
 run-virt_phys: build
 	@echo
-	@echo "--- virtual vs physical memory ---"
+	@echo "--- system allocator ---"
 	@THREADS_MAX=$(THREADS_MAX) ./build/virt_phys
 
 run-noalloc: build

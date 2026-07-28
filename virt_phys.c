@@ -60,6 +60,23 @@ print_mem_stats(const mem_stats_t *s, const mem_stats_t *prev, size_t count) {
     }
 }
 
+static void
+print_per_alloc(const char *label, double bytes) {
+    constexpr double KB = 1024.0;
+    constexpr double MB = KB * 1024.0;
+    constexpr double GB = MB * 1024.0;
+
+    if (bytes < KB) {
+        printf("  %s: %.0f B/alloc\n", label, bytes);
+    } else if (bytes < MB) {
+        printf("  %s: %.2f KB/alloc\n", label, bytes / KB);
+    } else if (bytes < GB) {
+        printf("  %s: %.2f MB/alloc\n", label, bytes / MB);
+    } else {
+        printf("  %s: %.2f GB/alloc\n", label, bytes / GB);
+    }
+}
+
 static double
 elapsed_ms(struct timespec *start, struct timespec *end) {
     return (end->tv_sec - start->tv_sec) * 1000.0 + (end->tv_nsec - start->tv_nsec) / 1e6;
@@ -192,11 +209,11 @@ main(void) {
         .results = malloc(threads_max * sizeof(bench_stats_t)),
     };
 
-    /* Phase 1: 100K x 1-byte allocations */
-    printf("--- Phase 1: 100,000 x malloc(1) = 100KB ---\n");
+    /* Phase 1: 10K x 1-byte allocations */
+    printf("--- Phase 1: 10,000 x malloc(1) = 10KB ---\n");
 
     ctx.chunk_size = 1;
-    ctx.alloc_count = 100000;
+    ctx.alloc_count = 10000;
 
     if (!show_thread_stats) {
         printf("\nthreads  elapsed/thr  us/alloc\n");
@@ -243,13 +260,8 @@ main(void) {
         mtx_destroy(&ctx.mtx);
     }
 
-    printf(
-        "  vmsize: %.0f B/alloc\n",
-        (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count)
-    );
-    printf(
-        "  vmrss:  %.0f B/alloc\n", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count)
-    );
+    print_per_alloc("vmsize", (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count));
+    print_per_alloc("vmrss", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count));
     printf("\n");
 
     /* Phase 2: 16,384 x malloc(128KB) = 2GB */
@@ -303,13 +315,8 @@ main(void) {
         mtx_destroy(&ctx.mtx);
     }
 
-    printf(
-        "  vmsize: %.0f B/alloc\n",
-        (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count)
-    );
-    printf(
-        "  vmrss:  %.0f B/alloc\n", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count)
-    );
+    print_per_alloc("vmsize", (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count));
+    print_per_alloc("vmrss", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count));
     printf("\n");
 
     /* Phase 3: 32 x malloc(128MB) = 4GB */
@@ -363,13 +370,8 @@ main(void) {
         mtx_destroy(&ctx.mtx);
     }
 
-    printf(
-        "  vmsize: %.0f B/alloc\n",
-        (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count)
-    );
-    printf(
-        "  vmrss:  %.0f B/alloc\n", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count)
-    );
+    print_per_alloc("vmsize", (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count));
+    print_per_alloc("vmrss", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count));
     printf("\n");
 
     /* Phase 4: 100 x malloc(1GB) = 100GB */
@@ -423,13 +425,8 @@ main(void) {
         mtx_destroy(&ctx.mtx);
     }
 
-    printf(
-        "  vmsize: %.0f B/alloc\n",
-        (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count)
-    );
-    printf(
-        "  vmrss:  %.0f B/alloc\n", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count)
-    );
+    print_per_alloc("vmsize", (double)sum_vmsize_delta * 1024 / (sum_threads * ctx.alloc_count));
+    print_per_alloc("vmrss", (double)sum_vmrss_delta * 1024 / (sum_threads * ctx.alloc_count));
     printf("\n");
 
     /* Phase 5: single 100GB allocation */
