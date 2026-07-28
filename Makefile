@@ -3,13 +3,13 @@ THREADS_MAX ?= 8
 
 all: build
 
-build: fmt virt_phys virt_phys-static align noalloc.so pagemalloc.so
+build: fmt bench noalloc-static align noalloc.so pagemalloc.so
 
-virt_phys: virt_phys.c
-	gcc $(GCC_FLAGS) virt_phys.c -o build/virt_phys
+bench: bench.c
+	gcc $(GCC_FLAGS) bench.c -o build/bench
 
-virt_phys-static: virt_phys.c noalloc.c
-	gcc $(GCC_FLAGS) virt_phys.c noalloc.c -o build/virt_phys_static
+noalloc-static: bench.c noalloc.c
+	gcc $(GCC_FLAGS) bench.c noalloc.c -o build/noalloc_static
 
 align: align.c
 	gcc $(GCC_FLAGS) align.c -o build/align
@@ -20,32 +20,32 @@ noalloc.so: noalloc.c
 pagemalloc.so: pagemalloc.c
 	gcc $(GCC_FLAGS) -shared -fPIC -o build/pagemalloc.so pagemalloc.c
 
-run: run-virt_phys run-noalloc run-static run-pagemalloc run-mimalloc run-align
+run: run-sys run-noalloc run-noalloc-static run-pagemalloc run-mimalloc run-align
 
-run-virt_phys: build
+run-sys: build
 	@echo
 	@echo "--- system allocator ---"
-	@THREADS_MAX=$(THREADS_MAX) ./build/virt_phys
+	@THREADS_MAX=$(THREADS_MAX) ./build/bench
 
 run-noalloc: build
 	@echo
 	@echo "--- aborting allocator (LD_PRELOAD) ---"
-	-@THREADS_MAX=$(THREADS_MAX) LD_PRELOAD=./build/noalloc.so ./build/virt_phys
+	-@THREADS_MAX=$(THREADS_MAX) LD_PRELOAD=./build/noalloc.so ./build/bench
 
-run-static: build
+run-noalloc-static: build
 	@echo
 	@echo "--- aborting allocator (static) ---"
-	-@THREADS_MAX=$(THREADS_MAX) ./build/virt_phys_static
+	-@THREADS_MAX=$(THREADS_MAX) ./build/noalloc_static
 
 run-pagemalloc: build
 	@echo
 	@echo "--- pagemalloc (mmap-only allocator) ---"
-	-@THREADS_MAX=$(THREADS_MAX) LD_PRELOAD=./build/pagemalloc.so ./build/virt_phys
+	-@THREADS_MAX=$(THREADS_MAX) LD_PRELOAD=./build/pagemalloc.so ./build/bench
 
 run-mimalloc: build
 	@echo
 	@echo "--- mimalloc (LD_PRELOAD) ---"
-	-@THREADS_MAX=$(THREADS_MAX) LD_PRELOAD=/usr/lib64/libmimalloc.so.2 ./build/virt_phys
+	-@THREADS_MAX=$(THREADS_MAX) LD_PRELOAD=/usr/lib64/libmimalloc.so.2 ./build/bench
 
 run-align: build
 	@echo
